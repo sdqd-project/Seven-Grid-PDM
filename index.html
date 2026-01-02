@@ -63,6 +63,12 @@
         .edge { stroke: #475569; stroke-width: 2; fill: none; marker-end: url(#arrow); transition: all 0.3s; }
         .edge.critical { stroke: var(--primary); stroke-width: 3; } 
         
+        /**
+         * @section 追加样式：连线文本标签
+         * 追加样式：用于在连线上方显示逻辑关系描述
+         */
+        .edge-label { fill: #94a3b8; font-size: 11px; font-weight: bold; paint-order: stroke; stroke: var(--bg); stroke-width: 4px; }
+
         /* Button Components */
         /* 按钮组件样式 */
         .btn { cursor: pointer; padding: 10px 16px; border-radius: 4px; border: none; font-weight: bold; transition: 0.2s; width: 100%; margin: 5px 0; }
@@ -95,7 +101,7 @@ const i18n = {
         addNode: "+ 新增活动节点",
         node: "节点",
         delete: "删除",
-        logicRel: "逻辑依赖关系 (FS)",
+        logicRel: "逻辑依赖关系 (FS/SS/FF/SF)",
         addRel: "+ 建立依赖关系",
         diag: "项目监控:",
         allClear: "逻辑闭合健康",
@@ -111,7 +117,7 @@ const i18n = {
         addNode: "+ Add Activity",
         node: "Node",
         delete: "Delete",
-        logicRel: "Dependencies (FS)",
+        logicRel: "Dependencies (FS/SS/FF/SF)",
         addRel: "+ Link Dependency",
         diag: "Project Monitor:",
         allClear: "Logic Healthy",
@@ -212,11 +218,21 @@ function App() {
             if (n.lf - n.du !== n.ls) errors.push(`[${n.id}] LF-DU ≠ LS`);
             if (n.ef > maxEF) maxEF = n.ef;
         });
-        // Logic violation check (FS dependency) / 逻辑违反校验 (FS 依赖)
+        // Logic violation check (Extended dependency check) / 逻辑违反校验 (扩展依赖校验)
+        /**
+         * @section 追加逻辑：根据关系类型进行具体的逻辑冲突诊断
+         */
         relations.forEach(r => {
             const from = activities.find(a => a.id === r.from);
             const to = activities.find(a => a.id === r.to);
-            if (from && to && from.ef > to.es) errors.push(`冲突: ${from.id}(EF:${from.ef}) > ${to.id}(ES:${to.es})`);
+            if (from && to) {
+                const type = r.type || 'FS';
+                const lag = r.lag || 0;
+                if (type === 'FS' && (from.ef + lag) > to.es) errors.push(`冲突: ${from.id}EF+${lag} > ${to.id}ES`);
+                if (type === 'SS' && (from.es + lag) > to.es) errors.push(`冲突: ${from.id}ES+${lag} > ${to.id}ES`);
+                if (type === 'FF' && (from.ef + lag) > to.ef) errors.push(`冲突: ${from.id}EF+${lag} > ${to.id}EF`);
+                if (type === 'SF' && (from.es + lag) > to.ef) errors.push(`冲突: ${from.id}ES+${lag} > ${to.id}EF`);
+            }
         });
         return { positioned, errors, maxEF };
     }, [activities, relations, lang]);
@@ -274,12 +290,21 @@ function App() {
                 h('h3', { style: { marginTop: '30px', borderTop: '1px solid #334155', paddingTop: '20px' } }, t('logicRel')),
                 h('button', { className: 'btn btn-ghost', onClick: () => {
                     if (activities.length < 2) return;
-                    setRelations([...relations, { id: Date.now(), from: activities[0].id, to: activities[activities.length-1].id }]);
+                    /**
+                     * @section 追加属性初始化
+                     * 为新增关系初始化默认的 type(FS) 和 lag(0)。
+                     */
+                    setRelations([...relations, { id: Date.now(), from: activities[0].id, to: activities[activities.length-1].id, type: 'FS', lag: 0 }]);
                 }}, t('addRel')),
-                relations.map(rel => h('div', { key: rel.id, style: {display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center'} }, [
-                    h('select', { style: {flex:1, background: '#0f172a', color: '#fff', border: '1px solid #475569'}, value: rel.from, onChange: e => setRelations(relations.map(r => r.id === rel.id ? {...r, from: e.target.value} : r)) }, activities.map(a => h('option', {value: a.id}, a.id))),
-                    h('span', null, '→'),
-                    h('select', { style: {flex:1, background: '#0f172a', color: '#fff', border: '1px solid #475569'}, value: rel.to, onChange: e => setRelations(relations.map(r => r.id === rel.id ? {...r, to: e.target.value} : r)) }, activities.map(a => h('option', {value: a.id}, a.id))),
+                /**
+                 * @section 追加 UI 模块：关系列表的增强配置
+                 * 支持选择 FS/SS/FF/SF 以及输入滞后量数字。
+                 */
+                relations.map(rel => h('div', { key: rel.id, style: {display: 'flex', gap: '4px', marginBottom: '8px', alignItems: 'center'} }, [
+                    h('select', { style: {width: '45px', background: '#0f172a', color: '#fff', border: '1px solid #475569'}, value: rel.from, onChange: e => setRelations(relations.map(r => r.id === rel.id ? {...r, from: e.target.value} : r)) }, activities.map(a => h('option', {value: a.id}, a.id))),
+                    h('select', { style: {width: '50px', background: '#0f172a', color: '#fff', border: '1px solid #475569'}, value: rel.type || 'FS', onChange: e => setRelations(relations.map(r => r.id === rel.id ? {...r, type: e.target.value} : r)) }, ['FS','SS','FF','SF'].map(opt => h('option', {value: opt}, opt))),
+                    h('input', { type: 'number', style: {width: '40px', background: '#0f172a', color: '#fff', border: '1px solid #475569', textAlign: 'center'}, value: rel.lag || 0, onChange: e => setRelations(relations.map(r => r.id === rel.id ? {...r, lag: parseInt(e.target.value) || 0} : r)) }),
+                    h('select', { style: {width: '45px', background: '#0f172a', color: '#fff', border: '1px solid #475569'}, value: rel.to, onChange: e => setRelations(relations.map(r => r.id === rel.id ? {...r, to: e.target.value} : r)) }, activities.map(a => h('option', {value: a.id}, a.id))),
                     h('button', { className: 'btn-danger', onClick: () => setRelations(relations.filter(r => r.id !== rel.id)) }, '×')
                 ])),
                 // Real-time Diagnostics Monitor / 实时诊断监控
@@ -313,7 +338,38 @@ function App() {
                     const to = stats.positioned.find(n => n.id === rel.to);
                     if (!from || !to) return null;
                     const isCritical = from.tf === 0 && to.tf === 0;
-                    return h('path', { key: `edge-${rel.id}`, className: `edge ${isCritical ? 'critical' : ''}`, d: `M ${from.x + 140} ${from.y + 45} L ${to.x} ${to.y + 45}` });
+
+                    /**
+                     * @section 追加逻辑：固定 FS 锚点并按条件显示标签
+                     * 锚点位置始终保持：起点=From右侧，终点=To左侧。
+                     */
+                    const type = rel.type || 'FS';
+                    const lag = rel.lag || 0;
+                    
+                    // 保持原有的 FS 锚点计算逻辑
+                    const x1 = from.x + 140;
+                    const x2 = to.x;
+                    const y1 = from.y + 45;
+                    const y2 = to.y + 45;
+
+                    // 判断是否显示标签：只要不是 FS+0 就要显示
+                    const showLabel = !(type === 'FS' && lag === 0);
+                    const labelText = `${type}${lag >= 0 ? '+' : ''}${lag}`;
+
+                    return h('g', { key: `edge-group-${rel.id}` }, [
+                        // 绘制固定 FS 锚点的连线
+                        h('path', { 
+                            className: `edge ${isCritical ? 'critical' : ''}`, 
+                            d: `M ${x1} ${y1} L ${x2} ${y2}` 
+                        }),
+                        // 绘制文字标签 (位于连线上方)
+                        showLabel && h('text', {
+                            x: (x1 + x2) / 2,
+                            y: (y1 + y2) / 2 - 6,
+                            textAnchor: 'middle',
+                            className: 'edge-label'
+                        }, labelText)
+                    ]);
                 }),
                 // Render PDM Activity Nodes (Rectangles + Lines + Text) / 渲染 PDM 活动节点
                 stats.positioned.map(node => h('g', { key: `g-node-${node.id}`, transform: `translate(${node.x}, ${node.y})`, className: `node-group ${node.tf < 0 ? 'delayed' : (node.tf === 0 ? 'critical' : '')}` }, [
