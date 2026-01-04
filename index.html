@@ -93,7 +93,9 @@
  * @description Stores all UI text for multi-language support (ZH/EN).
  * 中英文翻译字典：存储所有界面文本。
  */
-const { useState, useMemo, createElement: h } = React;
+const { useState, useMemo, useEffect, createElement: h } = React;
+
+const APP_VERSION = "1.0";
 
 const i18n = {
     zh: {
@@ -110,7 +112,8 @@ const i18n = {
         importBtn: "覆盖并应用数据",
         copyBtn: "复制 JSON",
         duration: "总工期",
-        invalidJson: "JSON 格式有误，无法解析。"
+        invalidJson: "JSON 格式有误，无法解析。",
+        verError: "版本不兼容：无法导入主版本号不同的数据。",
     },
     en: {
         title: "PDM Expert Engine Pro",
@@ -126,7 +129,8 @@ const i18n = {
         importBtn: "Overwrite & Apply",
         copyBtn: "Copy JSON",
         duration: "Duration",
-        invalidJson: "Invalid JSON."
+        invalidJson: "Invalid JSON.",
+        verError: "Version Incompatible: Cannot import data from a different major version.",
     }
 };
 
@@ -184,6 +188,23 @@ function App() {
     const [relations, setRelations] = useState([]);   // Link data / 连线数据
     const [showModal, setShowModal] = useState(false); // Modal visibility / 弹窗可见性
     const [tempData, setTempData] = useState("");      // Temp JSON string for I/O / 用于导入导出的临时 JSON 字符串
+
+    // Load initial data from cache / 从缓存加载初始数据
+    useEffect(() => {
+        const cached = localStorage.getItem('pdm_engine_data');
+        if (cached) {
+            try {
+                const parsed = JSON.parse(cached);
+                setActivities(parsed.activities || []);
+                setRelations(parsed.relations || []);
+            } catch (e) { console.error("Cache load failed", e); }
+        }
+    }, []);
+
+    // Sync state to cache / 同步状态到缓存
+    useEffect(() => {
+        localStorage.setItem('pdm_engine_data', JSON.stringify({ activities, relations, version: APP_VERSION }));
+    }, [activities, relations]);
 
     /**
      * Handlers for Node property changes (Forward/Backward pass logic)
@@ -244,6 +265,15 @@ function App() {
     const handleImport = () => {
         try {
             const parsed = JSON.parse(tempData);
+            
+            // Version Major Number check / 主版本号检查
+            const currentMajor = APP_VERSION.split('.')[0];
+            const importMajor = (parsed.version || "0.0").split('.')[0];
+            if (currentMajor !== importMajor) {
+                alert(t('verError'));
+                return;
+            }
+
             const validIds = (parsed.activities || []).map(a => a.id);
             setActivities([...(parsed.activities || [])]);
             setRelations((parsed.relations || []).filter(r => validIds.includes(r.from) && validIds.includes(r.to)));
@@ -260,7 +290,10 @@ function App() {
             h('div', { className: 'sidebar-scroll' }, [
                 // Header & Language Switcher / 标题与语言切换
                 h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'} }, [
-                    h('h2', { style: { margin: 0, fontSize: '18px' } }, t('title')),
+                    h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '8px' } }, [
+                        h('h2', { style: { margin: 0, fontSize: '18px' } }, t('title')),
+                        h('span', { style: { fontSize: '10px', opacity: 0.6 } }, `v${APP_VERSION}`)
+                    ]),
                     h('select', { value: lang, onChange: e => setLang(e.target.value), style: { background: '#0f172a', color: '#fff', border: '1px solid #475569', padding: '4px', borderRadius: '4px' } }, 
                     [h('option', { value: 'zh' }, '中文'), h('option', { value: 'en' }, 'English')])
                 ]),
@@ -318,7 +351,7 @@ function App() {
             // Sidebar Footer: Data I/O Button / 侧边栏底部：数据导入导出按钮
             h('div', { className: 'sidebar-footer' }, [
                 h('button', { className: 'btn btn-data', onClick: () => {
-                    setTempData(JSON.stringify({ activities, relations }, null, 4));
+                    setTempData(JSON.stringify({ activities, relations, version: APP_VERSION }, null, 4));
                     setShowModal(true);
                 }}, t('dataPort'))
             ])
